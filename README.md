@@ -24,6 +24,7 @@
   6. [메시지](web-app/06-messages.md) - 멤버 간 메시지
   7. [알림](web-app/07-notifications.md) - 시스템 알림
   8. [마이페이지](web-app/08-mypage.md) - 내 정보 관리
+  9. [설교노트](web-app/09-sermon-notes.md) - 설교 기록, 개인 노트 관리
 
 ### 어드민 (교회 관리자용)
 
