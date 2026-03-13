@@ -57,16 +57,17 @@ CREATE TABLE department (
 CREATE TABLE department_member (
   id CHAR(36) PRIMARY KEY,
   department_id CHAR(36) NOT NULL,
-  church_member_id CHAR(36) NOT NULL,
+  member_id CHAR(36) NOT NULL,
   role VARCHAR(20) NOT NULL DEFAULT 'MEMBER',
+  status VARCHAR(20) NOT NULL DEFAULT 'ACTIVE',
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   deleted_at DATETIME NULL,
   FOREIGN KEY (department_id) REFERENCES department(id),
-  FOREIGN KEY (church_member_id) REFERENCES church_member(id),
+  FOREIGN KEY (member_id) REFERENCES member(id),
   INDEX idx_dm_department_deleted (department_id, deleted_at),
-  INDEX idx_dm_church_member (church_member_id),
-  UNIQUE INDEX uk_dm_dept_cm (department_id, church_member_id, deleted_at)
+  INDEX idx_dm_member (member_id),
+  UNIQUE INDEX uk_dm_dept_member (department_id, member_id, deleted_at)
 );
 ```
 
@@ -75,18 +76,16 @@ CREATE TABLE department_member (
 | 테이블 | 변경 | NOT NULL? |
 |--------|------|-----------|
 | `group` | `department_id CHAR(36)` + FK + INDEX | 마이그레이션 후 NOT NULL |
-| `visit` | `department_id CHAR(36)` + FK + INDEX | 마이그레이션 후 NOT NULL |
-| `event` | `department_id CHAR(36)` + INDEX | nullable (교회 전체 이벤트 가능) |
 | `church_member_request` | `department_id CHAR(36)` + FK | nullable |
 
-**변경 안 함**: notification, message, prayer
+**변경 안 함**: notification, message, prayer, event (entity_type/entity_id 다형성 패턴 활용), visit (대상자 기반 자연 격리)
 
 ### 1-3. 데이터 마이그레이션
 
 1. 각 교회에 기본 department 생성 (`is_default=TRUE`, name="전체")
-2. 모든 `church_member` → 기본 department로 `department_member` 생성 (role: ChurchRole 매핑, SUPER_ADMIN→ADMIN)
-3. 모든 `group`, `visit` → 기본 department의 `department_id` 배정
-4. `group.department_id`, `visit.department_id` NOT NULL로 변경
+2. 모든 `church_member` → 기본 department로 `department_member` 생성 (member_id FK, role: ChurchRole 매핑, SUPER_ADMIN→ADMIN)
+3. 모든 `group` → 기본 department의 `department_id` 배정
+4. `group.department_id` NOT NULL로 변경
 
 ### 1-4. Backend 신규 파일 (Hexagonal 패턴)
 
@@ -95,7 +94,7 @@ CREATE TABLE department_member (
 | domain/enums | `DepartmentRole.java` — MEMBER(1), LEADER(2), ADMIN(3) + hasPermissionOver() |
 | domain/model | `Department.java` — AggregateRoot, churchId, name, description, isDefault |
 | domain/model | `DepartmentId.java` — BaseId |
-| domain/model | `DepartmentMember.java` — DomainEntity, departmentId, churchMemberId, role |
+| domain/model | `DepartmentMember.java` — DomainEntity, departmentId, memberId, role, status(ACTIVE/GRADUATED) |
 | domain/model | `DepartmentMemberId.java` — BaseId |
 | adapter/out/persistence/entity | `DepartmentJpaEntity.java` — @SQLRestriction, church ManyToOne |
 | adapter/out/persistence/entity | `DepartmentMemberJpaEntity.java` — department ManyToOne, churchMember ManyToOne |
@@ -138,16 +137,14 @@ CREATE TABLE department_member (
 | 도메인 모델 | JPA Entity | 변경 |
 |------------|-----------|------|
 | `Group.java` | `GroupJpaEntity.java` | `departmentId` / `@ManyToOne department` 추가 |
-| `Visit.java` | `VisitJpaEntity.java` | `departmentId` / `@ManyToOne department` 추가 |
-| `Event.java` | `EventJpaEntity.java` | `departmentId` / `department_id` 컬럼 (nullable) |
+| — | — | visit: 변경 없음 (대상자 기반 자연 격리) |
+| — | — | event: 변경 없음 (`entity_type='DEPARTMENT'` + `entity_id=departmentId`로 소속 구분) |
 | `ChurchMemberRequest.java` | `ChurchMemberRequestJpaEntity.java` | `departmentId` / `@ManyToOne department` (nullable) |
 | — | `ChurchJpaEntity.java` | `@OneToMany departments` 관계 추가 |
 
 ### 2-2. Mapper 수정
 
 - `GroupPersistenceMapper.java` — departmentId 매핑
-- `VisitPersistenceAdapter.java` 내부 매핑
-- `EventPersistenceAdapter.java` 내부 매핑
 
 ### 2-3. 기존 쿼리/API에 department 필터 추가
 
@@ -159,10 +156,10 @@ CREATE TABLE department_member (
 - 가입 승인 시 `department_member` 레코드 함께 생성
 
 **VisitController:**
-- 심방 생성/조회 시 `departmentId` 필수
+- 변경 없음 (심방 대상자의 department_member를 통해 자연 격리)
 
 **EventController:**
-- 이벤트 조회 시 `departmentId` 옵셔널 필터
+- 변경 없음 (`entity_type='DEPARTMENT'` + `entity_id` 패턴으로 부서 이벤트 소속 구분)
 
 **GroupPort / GroupPersistenceAdapter:**
 - `findGroupsByMemberIdAndChurchId` → department 필터 옵션
@@ -192,10 +189,8 @@ CREATE TABLE department_member (
 `admin/prisma/schema.prisma`에 추가:
 - `department` 모델, `department_member` 모델
 - `group`에 `department_id` + relation
-- `visit`에 `department_id` + relation
-- `event`에 `department_id`
 - `church`에 `departments` relation
-- `church_member`에 `department_members` relation
+- `member`에 `department_members` relation
 - `church_member_request`에 `department_id`
 
 ### 3-2. 새 페이지: 부서 관리
@@ -219,8 +214,8 @@ CREATE TABLE department_member (
 | Dashboard | 부서 필터 (통계, 모임) |
 | Members (교적부) | 부서 필터 + 부서 뱃지. 멤버 상세에 소속 부서 목록 + 각 역할 표시 |
 | Groups | 부서 필터 + 그룹 생성 시 부서 선택 필수 |
-| Visits | 부서 필터 |
-| Events | 부서 선택기 |
+| Visits | 변경 없음 (대상자 기반 자연 격리) |
+| Events | `entity_type='DEPARTMENT'` 패턴으로 부서별 이벤트 생성/조회 |
 | 가입 요청 승인 | 요청 부서 표시 + 부서 배정 필수 |
 
 ### 3-5. Sidebar
@@ -251,7 +246,7 @@ CREATE TABLE department_member (
 |--------|------|
 | HomePage | 생일/이벤트: 소속 부서 합산 + [부서명] 태그. 중복 제거. |
 | GroupListPage | 현재도 내 그룹만 보여서 변경 최소 |
-| MiniCalendar | departmentId로 이벤트 필터 |
+| MiniCalendar | `entity_type='DEPARTMENT'` 이벤트 포함 조회 |
 | 메시지 멤버 검색 | 내 부서 멤버만 |
 
 ### 4-4. 부서 미배정 상태 UX
@@ -285,10 +280,10 @@ CREATE TABLE department_member (
 ## 핵심 파일 목록
 
 ### Backend — 수정 대상
-- `domain/model/Group.java`, `Visit.java`, `Event.java`, `ChurchMemberRequest.java`
-- `adapter/out/persistence/entity/GroupJpaEntity.java`, `VisitJpaEntity.java`, `EventJpaEntity.java`, `ChurchJpaEntity.java`, `ChurchMemberRequestJpaEntity.java`
+- `domain/model/Group.java`, `ChurchMemberRequest.java`
+- `adapter/out/persistence/entity/GroupJpaEntity.java`, `ChurchJpaEntity.java`, `ChurchMemberRequestJpaEntity.java`
 - `adapter/out/persistence/GroupPersistenceAdapter.java`
-- `adapter/in/web/controller/ChurchController.java`, `VisitController.java`
+- `adapter/in/web/controller/ChurchController.java`
 - `domain/enums/EntityType.java`
 
 ### Backend — 참고 (패턴 복제용)
@@ -305,3 +300,25 @@ CREATE TABLE department_member (
 - `web-app/src/lib/api.ts`
 - `web-app/src/types/index.ts`
 - `web-app/src/features/home/HomePage.tsx`
+
+---
+
+## 구현 현황 (2026-03-13)
+
+| Phase | 상태 | 비고 |
+|-------|------|------|
+| Phase 1: DB + Backend 도메인 | ✅ 완료 | department, department_member 테이블 생성. 데이터 마이그레이션 완료. |
+| Phase 2: Backend 기존 도메인 연결 | ✅ 완료 | Group에 departmentId 연결. ChurchController join-request에 departmentId 추가. |
+| Phase 3: Admin | ✅ 완료 | Prisma 스키마, 부서 관리 페이지, 부서 CRUD API, 부서 멤버 API, 기존 페이지 부서 필터, 세션에 departmentId 추가. 테스트 144개 통과. |
+| Phase 4: Web-app | ✅ 완료 | Department/DepartmentMember 타입, departmentsApi, 가입 시 부서 선택 UI (다중 부서 → 선택, 단일 부서 → 자동선택). |
+| Phase 5: 엣지케이스 | ✅ 완료 | is_default 기본 부서 삭제 불가, 멤버/그룹 0 검증, SUPER_ADMIN 전체 부서 조회. |
+
+### 실제 구현에서 원안과 달라진 점
+
+| 항목 | 원안 | 실제 |
+|------|------|------|
+| `department_member` FK | `church_member_id` → church_member | `member_id` → member (조인 간소화) |
+| `department_member.status` | 없음 | `ACTIVE` / `GRADUATED` 추가 (졸업 이력 보존) |
+| `visit.department_id` | 추가 (NOT NULL) | **제거** — 심방 대상자 기반 자연 격리 |
+| `event.department_id` | 추가 (nullable) | **제거** — `entity_type='DEPARTMENT'` + `entity_id` 다형성 패턴 활용 |
+| 이벤트 부서 소속 | `department_id` 컬럼으로 필터 | `entity_type + entity_id`로 소속 구분 (CHURCH/DEPARTMENT/GROUP) |
