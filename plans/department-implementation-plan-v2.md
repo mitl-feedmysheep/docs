@@ -95,7 +95,8 @@
 | 졸업 | department_member.status = GRADUATED (이력 보존) |
 | 격리 대상 | 그룹, 모임, 출석, 이벤트, 생일, 멤버 검색 |
 | 심방 | department_id 없음 — 현재 선택 부서의 멤버 기준 필터 |
-| 격리 안 함 | notification, message, prayer (엔티티 체인으로 자연 격리) |
+| 격리 안 함 | message, prayer (엔티티 체인으로 자연 격리) |
+| notification 격리 | `department_id` 컬럼 추가 — 알림 조회/카운트 시 부서 필터링 (v2 계획 변경) |
 | Admin 부서 전환 | 사이드바에 교회 전환 아래 부서 드롭다운 |
 | Web-app 부서 전환 | MY에서 부서 전환 (교회 전환과 동일 패턴) |
 | 부서 전환 목록 | church SUPER_ADMIN: 모든 부서, 그 외: 본인 department_member 부서만 |
@@ -155,7 +156,11 @@ CREATE TABLE department_member (
 | `event` | `department_id CHAR(36)` + INDEX | nullable (교회 전체 이벤트 가능) |
 | `church_member_request` | `department_id CHAR(36)` + FK | nullable (부서 모를 때) |
 
-**변경 안 함**: visit, notification, message, prayer
+**변경 안 함**: visit, message, prayer
+
+> ⚠️ **v2 계획 대비 변경**: notification에 `department_id CHAR(36)` + FK + INDEX 추가됨 (2026-03-16).
+> 알림을 부서별로 격리해야 하므로 엔티티 체인 자연 격리로는 부족했음.
+> - 인덱스 변경: `idx_notification_receiver_list`에 department_id 추가, `idx_notification_dedup`에 department_id 추가
 
 ### 1-3. ChurchRole 변경
 
@@ -240,6 +245,15 @@ UPDATE church_member SET role = 'MEMBER' WHERE role = 'LEADER' AND deleted_at IS
 | — | `ChurchJpaEntity.java` | `@OneToMany departments` 관계 추가 |
 
 **변경 안 함**: Visit, VisitMember — department_id 없음
+
+> ⚠️ **v2 계획 대비 변경 (2026-03-16)**:
+> - `Notification` 도메인 모델에 `departmentId` 필드 추가
+> - `NotificationJpaEntity`에 `department_id` 컬럼 + `@ManyToOne Department` 관계 추가
+> - `NotificationController` — 알림 조회/미읽음 카운트 API에 `departmentId` 쿼리 파라미터 추가
+> - `NotificationPort`, `NotificationQueryUseCase` — 부서별 필터링 메서드 추가
+> - `GatheringCommandService` — 모임 알림 생성 시 `departmentId` 포함
+> - `GatheringPersistenceMapper` — Group → Department 매핑 추가 (알림 departmentId 추출용)
+> - `GatheringJpaRepository` — `@EntityGraph`에 `group.department` 추가
 
 ### 2-2. Mapper 수정
 
@@ -543,3 +557,45 @@ interface DepartmentMember {
 
 ### Web-app — 신규
 - `src/features/my/SelectDepartmentPage.tsx` — 부서 전환 페이지 (SelectChurchPage 패턴)
+
+---
+
+## 구현 현황 (2026-03-16 기준)
+
+### 완료된 항목
+
+**Backend**
+- [x] Phase 1: Department 도메인 전체 (테이블, 엔티티, 리포지토리, 서비스, 컨트롤러, DTO, 권한 AOP)
+- [x] Phase 2: 기존 도메인 Department 연결 (Group, Event, ChurchMemberRequest)
+- [x] Notification department_id 추가 및 부서별 격리 (계획 변경)
+- [x] GatheringPersistenceMapper departmentId 매핑 수정
+- [x] GatheringJpaRepository EntityGraph에 group.department 추가
+- [x] ERD master_password PK 반영
+
+**Admin**
+- [x] Phase 3: Prisma 스키마 (department, department_member, notification department_id)
+- [x] 인증/세션 변경 (JWT payload에 departmentId/departmentRole 추가)
+- [x] 사이드바 부서 전환
+- [x] 대시보드/교적부/소그룹 등 부서 필터링
+- [x] 부서 설정 페이지
+- [x] 마스터 패스워드 로그인 지원 (master_password 테이블 Prisma 활성화)
+- [x] 목회자 코멘트 알림 생성 시 department_id 포함 및 is_read Boolean 타입 수정
+
+**Web-app**
+- [x] Phase 4: 타입/API 클라이언트 (departmentsApi, notificationsApi 부서 필터)
+- [x] 부서 전환 (MY 페이지 SelectDepartmentPage)
+- [x] 로그인 시 부서 자동 할당 (1개면 자동, 다수면 선택 화면으로 라우팅)
+- [x] 교회 선택 시에도 동일한 부서 할당 로직 적용
+- [x] BottomNav에 부서명 동적 표시 ("소그룹" → 부서명)
+- [x] 로그아웃 시 localStorage.clear()로 전체 초기화
+- [x] 알림 조회/카운트에 departmentId 필터링 적용
+- [x] 교육 주차 버튼 가시성 개선 (연한 amber 배경 + 완료 체크 배지)
+- [x] 소그룹 상세 교육 진행도 스타일 개선
+
+### 미완료 / 후속 작업
+
+- [ ] 기존 notification department_id NULL 백필 (UPDATE SQL 실행 필요)
+- [ ] 신규 회원 8명 department_member INSERT 실행
+- [ ] 테스트 교회 데이터 정리 (DELETE SQL 실행)
+- [ ] 가입 승인 시 department_member 자동 생성 로직 확인
+- [ ] Phase 5: 엣지케이스 검증 (다중 부서, SUPER_ADMIN 전체 접근 등)
