@@ -1,22 +1,18 @@
 # Docs (프로젝트 문서)
 
-프로젝트 전반의 기획, 설계, 구현 계획 문서를 모아놓는 디렉토리.
+프로젝트 전반의 기획, 설계 문서를 모아놓는 디렉토리.
 
 ## 디렉토리 구조
 
 ```
 docs/
-└── plans/          # 구현 계획서
+├── glossary.md     # 도메인 용어 사전
+└── plans/          # 설계 문서
 ```
 
-## plans/
+## 작업 규칙
 
-대규모 기능 변경이나 신규 도메인 도입 시 구현 계획서를 보관.
-
-| 파일 | 설명 |
-|------|------|
-| `department-implementation-plan.md` | Department(부서) 도입 구현 계획 v1 — 초기 설계 |
-| `department-implementation-plan-v2.md` | Department(부서) 도입 구현 계획 v2 (최종) — 권한 3-tier, 부서 전환 UI, 알림 부서 격리, 구현 현황 포함 |
-| `2026-03-06-platform-monitoring-design.md` | 플랫폼 모니터링 설계 — Umami 방문 추적, 앱 활동 지표, 서버/DB 리소스, API 상태 모니터링 |
-| `2026-03-06-platform-monitoring-plan.md` | 플랫폼 모니터링 구현 계획 — Umami(Docker), metrics 수집 컨테이너, Admin 대시보드 UI 구현 단계별 계획 |
-| `2026-03-10-home-weekly-summary-design.md` | 홈 화면 "이번 주" 요약 카드 — 최근 7일 모임의 한주 목표/기도제목을 홈 상단에 표시하는 기능 설계 |
+- 모든 개발 작업 시 `docs/plans/` 에 설계 문서를 작성할 것 (뭘 왜 만들었는지, 어떻게 구현했는지를 한 문서에)
+- 파일명 형식: `YYYY-MM-DD-<주제>.md`
+- 작업 시작 전에 문서를 먼저 작성할 것
+- 새로운 도메인이 추가되면 `docs/glossary.md`에 용어를 추가하고, 관련 서브프로젝트 CLAUDE.md (backend, admin, web-app)의 도메인 용어도 함께 업데이트할 것
