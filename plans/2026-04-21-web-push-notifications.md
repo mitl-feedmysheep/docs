@@ -139,3 +139,28 @@ src/features/onboarding/onboarding-data.ts  # NotificationSlide OutroSlide 직�
 - **iOS 16.4+ 홈화면 추가 PWA 필수**: 미지원 환경에서는 토글 숨김
 - **다중 인스턴스 배포 시 중복 발송**: 현재 단일 JVM 전제. 멀티 노드 확장 시 ShedLock 추가 필요
 - **반-시간 오프셋 타임존**: 정각 기준이므로 최대 ~30분 오차 (허용 범위로 결정)
+
+---
+
+## 2026-07-09 업데이트: 구독 자동 복구 (silentSync) + 프롬프트 위치 수정
+
+### 배경
+
+브라우저 push 구독은 캐시 삭제, 브라우저 업데이트 등으로 무효화될 수 있다. 백엔드는 발송 실패(GONE/INVALID) 시 `push_subscription` 레코드를 삭제하지만, 브라우저는 구독이 살아있다고 판단해 UI에 "알림 켜짐"으로 표시된다. 유저는 알림이 안 오는 이유를 알 수 없다.
+
+### silentSync()
+
+앱 실행 시 push 구독을 자동으로 점검하고 복구한다.
+
+1. `Notification.permission !== "granted"` → 리턴
+2. `getSubscription()` → null이면 팝업 없이 새 구독 생성
+3. endpoint와 `localStorage["push.endpoint"]` 비교 → 같으면 스킵, 다르면 백엔드 재등록
+
+`subscribe()` 성공 시 localStorage에 endpoint 저장, `unsubscribe()` 시 삭제.
+`AppShell` 마운트 시 호출 → 앱 진입마다 자동 복구. 정상 상황에서는 백엔드 호출 없음(localStorage 비교로 스킵).
+
+### 알림 프롬프트 위치 수정
+
+- 기존: AppShell 마운트 시 어느 페이지에서나 1.5초 후 노출
+- 변경: 홈 화면(`/`) 진입 시에만 노출
+- 이유: `/pending-approval` 등 가입 대기 페이지에서 프롬프트가 뜨는 것은 의도하지 않은 동작
