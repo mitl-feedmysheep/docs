@@ -158,3 +158,26 @@ else:
 ## 미정 / 추후 검토
 
 - 나의 기도를 셀에 공유하는 기능 (현재는 본인만)
+
+## 구현 메모 (2026-11-26)
+
+**Backend**
+- `POST /prayers`(작성), `PATCH /prayers/{id}`(나의 기도 내용 수정) 추가
+- 본인 확인: `updateAnswered`는 본인만, `delete`는 나의 기도만 본인 한정 (모임 기도제목은 리더가 모임 화면에서 지우므로 기존 동작 유지), `updateContent`는 본인 + 나의 기도만
+- 기존 버그 수정: `PrayerPersistenceAdapter.toEntity`가 `visit_member_id`를 매핑하지 않아 저장 시 심방 연결이 지워질 수 있던 문제, `gathering_member_id`가 null이면 NPE 나던 문제
+- 나의 기도 판별은 조인 결과가 아닌 FK(`prayer.gatheringMember.id`)로 — 소프트 삭제된 모임의 기도제목이 나의 기도로 잘못 분류되지 않도록
+- `/prayers/me` 응답에 `source`(MY/GATHERING), 홈 요약에 `myPrayers`(최대 3) + `myPrayerCount`
+- 기도 알림: `PrayerPushComposer`(순수 함수)가 회원별 내용 결정, `PushNotificationSendService`에서 후보 기도제목(`PrayerPort.findUnansweredForPush`)과 최근 60일 발송 이력(`PushDeliveryLogPort.findByMemberIdsAndTypeSince`)을 회원 전체 대상으로 각 1회 일괄 조회
+  - B-1 대상 범위: 모임 날짜 14~90일 전 (조회도 90일로 제한)
+  - 본문 100자 초과 시 말줄임
+- 인덱스: `prayer(member_id)`, `push_delivery_log(member_id, push_type, sent_at)` 기존 인덱스로 충분 (추가 없음)
+
+**Web-app**
+- 기도 탭: `직접 쓰기` 버튼, 작성/수정 바텀시트(`MyPrayerSheet`, 200자, 삭제는 두 번 탭 확인), "내가 쓴 기도제목" 그룹, 딥링크 `?highlight=` / `?write=1` 처리 후 쿼리 제거
+- 홈: `MyPrayerCard`(나의 기도), 이번 주 모임 기도제목/목표와 나의 기도가 모두 없을 때만 `MyPrayerEmptyCard`; 나의 한 주 카드의 기도제목 라벨을 "모임 기도제목" + 소그룹 이름으로
+- 온보딩: 홈 요약 슬라이드에 나의 기도 추가, 기도 탭 "직접 쓰기" 슬라이드(`prayer-write`) 신설
+
+**Admin**
+- `lib/prayer.ts`의 `EXCLUDE_PERSONAL_PRAYER`로 회원 상세(API/페이지) 기도제목 히스토리에서 나의 기도 제외
+- `PATCH/DELETE /api/prayers/[id]`: 다른 회원의 나의 기도는 403
+
